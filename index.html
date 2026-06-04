@@ -24,6 +24,9 @@
   aside .enc{padding:9px 14px;border-bottom:1px solid var(--line);cursor:pointer;}
   aside .enc:hover{background:var(--panel2);}
   aside .enc.sel{background:var(--panel2);border-left:3px solid var(--accent);padding-left:11px;}
+  aside .enc.sel2{border-left:3px solid var(--me);padding-left:11px;}
+  aside .loghdr{padding:7px 14px;font-size:11px;color:var(--dim);text-transform:uppercase;
+    letter-spacing:.04em;background:var(--bg);border-bottom:1px solid var(--line);position:sticky;top:0;}
   aside .enc .nm{font-weight:600;}
   aside .enc .meta{font-size:11px;color:var(--dim);margin-top:2px;}
   .tag{font-size:10px;padding:1px 6px;border-radius:3px;font-weight:700;}
@@ -75,6 +78,18 @@
     background:var(--bar);color:var(--txt);margin-left:6px;}
   .rank.top{background:var(--accent);color:#2a1c02;}
   .skull{color:var(--wipe);margin-left:6px;}
+  .runbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+  .runbar label{color:var(--dim);font-size:12px;}
+  .runbar select{margin-bottom:0;max-width:340px;}
+  .runbar .swap{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:5px;padding:5px 9px;cursor:pointer;}
+  .runbar .swap:hover{border-color:var(--accent);color:var(--accent);}
+  .panels{display:flex;gap:18px;flex-wrap:wrap;}
+  .panels .panel{flex:1;min-width:300px;}
+  .panels .panel h3{font-size:13px;margin:0 0 8px;font-weight:600;}
+  .panels .panel h3 .lbl{color:var(--dim);font-weight:400;font-size:12px;margin-left:6px;}
+  td.pos,td .pos{color:var(--kill);} td.neg,td .neg{color:var(--wipe);}
+  tr.total td{border-top:2px solid var(--line);border-bottom:none;font-weight:700;color:var(--txt);}
 </style>
 </head>
 <body>
@@ -86,42 +101,70 @@
 <div class="layout">
   <aside id="encList"></aside>
   <main>
+    <div class="runbar" id="runbar"></div>
     <div class="tabs" id="tabs"></div>
     <div id="view"></div>
   </main>
 </div>
 <script>
-let DATA=null, sel=0, tab="night", me="";
+let DATA=null, r1=0, r2=null, tab="night", me="";
 const TABS=[["night","My Night"],["dps","Damage"],["hps","Healing"],["deaths","Deaths"],["pull","Pull & Aggro"],["player","Player"]];
 const fmt=n=>n.toLocaleString();
 const mmss=s=>Math.floor(s/60)+":"+String(Math.floor(s%60)).padStart(2,"0");
+const runs=()=>DATA.encounters;
+const multiLog=()=>DATA.logs && DATA.logs.length>1;
 
 fetch("/api/report").then(r=>r.json()).then(d=>{
   DATA=d; me=(d.me||"").toLowerCase();
   document.getElementById("logname").textContent=d.log;
   document.getElementById("meInput").value=d.me||"";
-  buildTabs(); renderSidebar(); render();
+  buildTabs(); buildRunbar(); renderSidebar(); render();
 });
 document.getElementById("meInput").addEventListener("input",e=>{me=e.target.value.trim().toLowerCase();render();});
 
+function tagFor(e){return `<span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span>`;}
+function runLabel(e){
+  return `${e.name} · pull ${e.pull} · ${e.kill?'KILL':'wipe'} · ${mmss(e.duration)}`+
+    (multiLog()?` [${e.log}]`:"");
+}
 function buildTabs(){
   const t=document.getElementById("tabs"); t.innerHTML="";
   TABS.forEach(([k,label])=>{
     const b=document.createElement("button");
     b.textContent=label; b.className=k===tab?"act":"";
-    b.onclick=()=>{tab=k;buildTabs();render();};
+    b.onclick=()=>{tab=k;buildTabs();buildRunbar();render();};
     t.appendChild(b);
   });
 }
+function buildRunbar(){
+  const bar=document.getElementById("runbar");
+  // The compare runbar doesn't apply to the My Night overview — hide it there
+  // so that view stays exactly as it was before compare was added.
+  if(tab==="night"){ bar.style.display="none"; bar.innerHTML=""; return; }
+  bar.style.display="flex";
+  const opts=(selIdx,none)=>(none?`<option value="">— none (single run) —</option>`:"")+
+    runs().map((e,i)=>`<option value="${i}" ${i===selIdx?'selected':''}>${runLabel(e)}</option>`).join("");
+  bar.innerHTML=`<label>Run 1</label><select id="r1sel">${opts(r1,false)}</select>
+    <label>Run 2</label><select id="r2sel">${opts(r2,true)}</select>
+    <button class="swap" id="swapBtn" title="Swap Run 1 and Run 2">⇄ swap</button>`;
+  document.getElementById("r1sel").onchange=e=>{r1=+e.target.value;renderSidebar();render();};
+  document.getElementById("r2sel").onchange=e=>{r2=e.target.value===""?null:+e.target.value;renderSidebar();render();};
+  document.getElementById("swapBtn").onclick=()=>{if(r2!==null){[r1,r2]=[r2,r1];buildRunbar();renderSidebar();render();}};
+}
 function renderSidebar(){
   const el=document.getElementById("encList"); el.innerHTML="";
-  DATA.encounters.forEach((e,i)=>{
+  let curLog=null;
+  runs().forEach((e,i)=>{
+    if(multiLog() && e.log!==curLog){
+      curLog=e.log;
+      const hd=document.createElement("div"); hd.className="loghdr"; hd.textContent=e.log;
+      el.appendChild(hd);
+    }
     const d=document.createElement("div");
-    d.className="enc"+(i===sel?" sel":"");
+    d.className="enc"+(i===r1?" sel":"")+(i===r2?" sel2":"");
     d.innerHTML=`<div class="nm">${e.name}</div>
-      <div class="meta"><span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span>
-      &nbsp;pull ${e.pull} &middot; ${mmss(e.duration)}</div>`;
-    d.onclick=()=>{sel=i;if(tab==="night")tab="dps";buildTabs();renderSidebar();render();};
+      <div class="meta">${tagFor(e)}&nbsp;pull ${e.pull} &middot; ${mmss(e.duration)}</div>`;
+    d.onclick=()=>{r1=i;if(tab==="night")tab="dps";buildTabs();buildRunbar();renderSidebar();render();};
     el.appendChild(d);
   });
 }
@@ -195,12 +238,16 @@ function renderNight(){
   }).join("");
   v.innerHTML=h;
   v.querySelectorAll(".nightrow").forEach(el=>{
-    el.onclick=()=>{sel=+el.dataset.i;tab="dps";buildTabs();renderSidebar();render();};
+    el.onclick=()=>{r1=+el.dataset.i;r2=null;tab="dps";buildTabs();buildRunbar();renderSidebar();render();};
   });
 }
 function render(){
-  const e=DATA.encounters[sel], v=document.getElementById("view");
   if(tab==="night"){ renderNight(); return; }
+  if(r2===null) renderSingle(runs()[r1]);
+  else renderCompare(runs()[r1], runs()[r2]);
+}
+function renderSingle(e){
+  const v=document.getElementById("view");
   if(tab==="dps"){
     v.innerHTML=header(e)+ (e.dps.length?bars(e.dps,"dps","player",null,
       r=>`<b>${fmt(Math.round(r.dps))}</b> dps${r.petPct?` &middot; ${r.petPct}% pet`:""}`)
@@ -261,6 +308,117 @@ function render(){
     const selEl=document.getElementById("plSel");
     if(selEl)selEl.onchange=ev=>{window._pl=ev.target.value;render();};
   }
+}
+
+// ---- comparison helpers ----------------------------------------------------
+function cmpHeader(a,b){
+  let h=`<h2>${tab==="dps"?"Damage":tab==="hps"?"Healing":tab==="deaths"?"Deaths":tab==="pull"?"Pull & Aggro":"Player"} — comparison</h2>
+    <div class="sub">A: ${tagFor(a)} ${runLabel(a)} &nbsp;vs&nbsp; B: ${tagFor(b)} ${runLabel(b)}</div>`;
+  if(a.name!==b.name)
+    h+=`<div class="note">You're comparing two <b>different encounters</b> (${a.name} vs ${b.name}); per-player deltas still apply but won't be like-for-like.</div>`;
+  return h;
+}
+// union rows from A and B keyed by `key`, pulling numeric `valKey` (0 if absent)
+function joinByKey(aRows,bRows,key,valKey){
+  const m=new Map();
+  (aRows||[]).forEach(r=>m.set(r[key],{k:r[key],a:r[valKey]||0,b:0}));
+  (bRows||[]).forEach(r=>{const e=m.get(r[key])||{k:r[key],a:0,b:0};e.b=r[valKey]||0;m.set(r[key],e);});
+  return [...m.values()];
+}
+// two <td>: signed delta + signed delta% (colored). a,b already numbers.
+function dCells(a,b){
+  const d=Math.round(a)-Math.round(b);
+  const cls=d>0?"pos":d<0?"neg":"";
+  const sign=d>0?"+":d<0?"-":"";
+  const pct=b?`${sign}${Math.round(Math.abs(100*d/b))}%`:(a?"new":"—");
+  return `<td class="${cls}">${sign}${fmt(Math.abs(d))}</td><td class="${cls}">${pct}</td>`;
+}
+function cmpMetricTable(a,b,key,valKey,unit){
+  const rows=joinByKey(a,b,"player",valKey).sort((x,y)=>y.a-x.a);
+  if(!rows.length) return `<div class="empty">no ${unit} in either run</div>`;
+  let ta=0,tb=0;
+  const body=rows.map(r=>{
+    ta+=r.a; tb+=r.b;
+    const isMe=me && r.k.toLowerCase()===me;
+    return `<tr><td style="text-align:left" class="${isMe?'who me':''}">${r.k}</td>
+      <td>${fmt(Math.round(r.a))}</td><td>${fmt(Math.round(r.b))}</td>${dCells(r.a,r.b)}</tr>`;
+  }).join("");
+  return `<table><tr><th>player</th><th>A ${unit}</th><th>B ${unit}</th><th>Δ</th><th>Δ%</th></tr>`+
+    body+`<tr class="total"><td style="text-align:left">RAID</td>
+      <td>${fmt(Math.round(ta))}</td><td>${fmt(Math.round(tb))}</td>${dCells(ta,tb)}</tr></table>`;
+}
+function deathsPanel(e){
+  let h=`<div class="card" style="margin-bottom:10px"><div class="k">Deaths</div><div class="v">${e.deaths.length}</div></div>`;
+  if(!e.deaths.length) return h+`<div class="empty">no player deaths — clean kill!</div>`;
+  return h+`<table><tr><th>time</th><th>who</th><th>killed by</th><th>spell</th></tr>`+
+    e.deaths.map(d=>{const isMe=me&&d.who.toLowerCase()===me;
+      return `<tr><td>${mmss(d.t)}</td><td style="text-align:left" class="${isMe?'who me':''}">${d.who}</td>
+      <td style="text-align:left">${d.by}</td><td style="text-align:left">${d.spell}</td></tr>`;
+    }).join("")+`</table>`;
+}
+function pullPanel(e){
+  let h="";
+  if(e.first_on_boss){const f=e.first_on_boss;
+    h+=`<div class="cards"><div class="card"><div class="k">Pull started by</div>
+      <div class="v" ${me&&f.who.toLowerCase()===me?'style="color:var(--me)"':''}>${f.who}</div>
+      <div class="k">${f.spell} @ ${f.t}s</div></div></div>`;
+  } else h+=`<div class="empty">opener not resolved</div>`;
+  h+= e.aggro.length? `<div class="agg" style="margin-top:8px">`+e.aggro.map(a=>{
+      const isMe=me&&a.target.toLowerCase()===me;
+      return `<span ${isMe?'style="color:var(--me);border-color:var(--me)"':''}>${mmss(a.t)} → ${a.target}</span>`;
+    }).join("")+`</div>` : `<div class="empty">no resolvable melee swings</div>`;
+  return h;
+}
+function twoPanels(a,b,fn){
+  return `<div class="panels">
+    <div class="panel"><h3>Run A<span class="lbl">${runLabel(a)}</span></h3>${fn(a)}</div>
+    <div class="panel"><h3>Run B<span class="lbl">${runLabel(b)}</span></h3>${fn(b)}</div></div>`;
+}
+function renderCompare(a,b){
+  const v=document.getElementById("view");
+  let h=cmpHeader(a,b);
+  if(tab==="dps"){
+    h+=cmpMetricTable(a.dps,b.dps,"player","dps","dps");
+  }else if(tab==="hps"){
+    h+=cmpMetricTable(a.hps,b.hps,"player","hps","hps");
+  }else if(tab==="deaths"){
+    h+=twoPanels(a,b,deathsPanel);
+  }else if(tab==="pull"){
+    h+=`<div class="note">Threat isn't recorded in combat logs. These are <b>inferred</b>:
+      the opener = first player hit on the boss; the timeline = who the boss was auto-attacking.</div>`;
+    h+=twoPanels(a,b,pullPanel);
+  }else if(tab==="player"){
+    const names=[...new Set([...Object.keys(a.players),...Object.keys(b.players)])].sort();
+    let cur=names.find(n=>n.toLowerCase()===me) || (window._cpl&&names.includes(window._cpl)?window._cpl:names[0]);
+    window._cpl=cur;
+    h+=`<select id="cplSel">`+names.map(n=>`<option ${n===cur?'selected':''}>${n}</option>`).join("")+`</select>`;
+    if(cur){
+      const pa=a.players[cur]||{damage:0,dps:0,heal:0,hps:0,spells:[],healspells:[]};
+      const pb=b.players[cur]||{damage:0,dps:0,heal:0,hps:0,spells:[],healspells:[]};
+      h+=`<table style="max-width:560px"><tr><th>metric</th><th>A</th><th>B</th><th>Δ</th><th>Δ%</th></tr>
+        <tr><td style="text-align:left">Damage</td><td>${fmt(pa.damage)}</td><td>${fmt(pb.damage)}</td>${dCells(pa.damage,pb.damage)}</tr>
+        <tr><td style="text-align:left">DPS</td><td>${fmt(Math.round(pa.dps))}</td><td>${fmt(Math.round(pb.dps))}</td>${dCells(pa.dps,pb.dps)}</tr>`;
+      if(pa.heal||pb.heal)
+        h+=`<tr><td style="text-align:left">Healing (eff)</td><td>${fmt(pa.heal)}</td><td>${fmt(pb.heal)}</td>${dCells(pa.heal,pb.heal)}</tr>
+            <tr><td style="text-align:left">HPS</td><td>${fmt(Math.round(pa.hps))}</td><td>${fmt(Math.round(pb.hps))}</td>${dCells(pa.hps,pb.hps)}</tr>`;
+      h+=`</table>`;
+      const sp=joinByKey(pa.spells,pb.spells,"spell","dmg").sort((x,y)=>y.a-x.a);
+      if(sp.length){
+        h+=`<h2 style="font-size:14px;margin-top:18px">Damage by spell</h2>
+          <table><tr><th>spell</th><th>A</th><th>B</th><th>Δ</th><th>Δ%</th></tr>`+
+          sp.map(r=>`<tr><td style="text-align:left">${r.k}</td><td>${fmt(r.a)}</td><td>${fmt(r.b)}</td>${dCells(r.a,r.b)}</tr>`).join("")+`</table>`;
+      }
+      const hsp=joinByKey(pa.healspells,pb.healspells,"spell","eff").sort((x,y)=>y.a-x.a);
+      if(hsp.length){
+        h+=`<h2 style="font-size:14px;margin-top:18px">Healing by spell (effective)</h2>
+          <table><tr><th>spell</th><th>A</th><th>B</th><th>Δ</th><th>Δ%</th></tr>`+
+          hsp.map(r=>`<tr><td style="text-align:left">${r.k}</td><td>${fmt(r.a)}</td><td>${fmt(r.b)}</td>${dCells(r.a,r.b)}</tr>`).join("")+`</table>`;
+      }
+    }
+  }
+  v.innerHTML=h;
+  const selEl=document.getElementById("cplSel");
+  if(selEl)selEl.onchange=ev=>{window._cpl=ev.target.value;render();};
 }
 </script>
 </body>

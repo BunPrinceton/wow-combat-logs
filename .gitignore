@@ -2,3 +2,7 @@
 *.txt
 logs/*.txt
 !*.txt.gz
+
+# Python bytecode — never commit
+__pycache__/
+*.pyc
