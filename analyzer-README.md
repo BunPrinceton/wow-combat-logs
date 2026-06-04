@@ -40,6 +40,20 @@ The web UI (`serve.py` + `index.html`) and every CLI command read the gzipped
 logs directly. On the Mac you don't need the `PYTHONIOENCODING=utf-8` trick that
 Windows PowerShell needs for special characters in names.
 
+### Comparing runs in the web UI
+`serve.py` accepts **more than one log**, and every encounter from every log is
+selectable:
+```
+python3 serve.py thisweek.txt.gz lastweek.txt.gz --me Nazna
+```
+Above the tabs there are two **Run** dropdowns. Pick a single run (Run 2 = *none*)
+for the normal view, or select a second run to turn all five tabs into an A-vs-B
+comparison: Damage/Healing show per-player `A`, `B`, `Δ`, `Δ%` (green = up,
+red = down); Deaths and Pull & Aggro show the two runs side by side; Player diffs
+one character's totals and per-spell breakdown. The two runs can be different
+pulls of the same boss (same log) or the same boss in two logs (week-over-week).
+The `⇄ swap` button flips A and B.
+
 ## Commands
 - **encounters** - list every boss pull (kill/wipe, duration, pull #).
 - **dps** - damage table; pet damage is rolled into the owner (a `pet%` column shows how much).

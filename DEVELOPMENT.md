@@ -19,7 +19,9 @@ modifies or deletes the original log files.
   `_open_log()`, so point commands straight at the compressed file.
 - `serve.py` + `index.html` — a local web UI (stdlib `http.server`, dark theme,
   vanilla JS). Click through every encounter; tabs for Damage / Healing /
-  Deaths / Pull & Aggro / Player.
+  Deaths / Pull & Aggro / Player. Accepts **multiple log files** at once and has
+  two "Run" selectors above the tabs: pick one run for the normal single-run
+  view, or a second run to turn every tab into an A-vs-B comparison (Δ / Δ%).
 - `analyzer-README.md` — full docs, including the combat-log field-offset layout
   for hacking on the parser.
 - `README.md` — about the *logs* themselves (not the analyzer). Leave it alone.
@@ -30,9 +32,11 @@ modifies or deletes the original log files.
 
 ## Run it
 ```bash
-# web UI
+# web UI (one log)
 python3 serve.py logs/WoWCombatLog-060226_210103.txt.gz --me Nazna
-# then open http://localhost:8777/
+# web UI comparing runs across two logs (week-over-week)
+python3 serve.py logs/WoWCombatLog-060226_210103.txt.gz logs/WoWCombatLog-060326_205851.txt.gz --me Nazna
+# then open http://localhost:8777/  (use the two "Run" dropdowns to compare)
 
 # CLI examples
 python3 wowlogs.py logs/WoWCombatLog-060226_210103.txt.gz encounters
@@ -59,9 +63,10 @@ hunter Call Pet). Threat is NOT in the log — the `pull`/aggro views are
 ## Roadmap (build wherever)
 1. **"My Night" overview** — Nazna's DPS + raid rank across every boss on one
    screen.
-2. **Week-over-week comparison in the UI** — the CLI `compare` command exists;
-   surface it in the web UI. Also let `compare` diff two pulls within the *same*
-   log via `--pull`.
+2. ~~**Week-over-week comparison in the UI**~~ — DONE. `serve.py` takes multiple
+   logs; the two "Run" selectors in `index.html` diff any two runs (same log or
+   across logs) on every tab. (CLI `compare --pull` for same-log diffs is still
+   open if you want parity on the command line.)
 3. **Flame Shock uptime / cast efficiency** view for tightening Ele parses.
 4. Later: interrupts / dispels / spell-uptime tables; one combined
    `report "<boss>"` that prints dps + hps + deaths together.

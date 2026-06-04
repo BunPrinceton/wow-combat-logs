@@ -7,7 +7,9 @@ at http://localhost:<port>/ so you can click through every encounter, switch
 between Damage / Healing / Deaths / Pull, and drill into any player.
 
 Usage:
-    python serve.py <logfile> [--me Nazna] [--port 8777]
+    python serve.py <logfile> [<logfile> ...] [--me Nazna] [--port 8777]
+
+Pass more than one log to compare runs across logs (week-over-week) in the UI.
 
 Pure stdlib (http.server) + a static index.html. Nothing leaves your machine.
 """
@@ -156,6 +158,7 @@ def build_report(path, me=None):
                                        key=lambda kv: kv[1]["eff"], reverse=True)],
             }
         out_encs.append({
+            "log": os.path.basename(path),
             "name": e["name"], "pull": e["pull"], "kill": e["kill"],
             "duration": int(dur), "boss": e["name"],
             "dps": [{"player": r[0], "total": r[1], "dps": round(r[1] / dur, 1),
@@ -199,9 +202,9 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 1
-    path = argv[1]
     me, port = None, 8777
-    rest = argv[2:]
+    paths = []
+    rest = argv[1:]
     i = 0
     while i < len(rest):
         if rest[i] == "--me":
@@ -209,12 +212,30 @@ def main(argv):
         elif rest[i] == "--port":
             port = int(rest[i + 1]); i += 2
         else:
-            i += 1
-    print(f"Parsing {os.path.basename(path)} ... (large logs take a few seconds)")
-    report = build_report(path, me)
-    n = len(report["encounters"])
+            paths.append(rest[i]); i += 1
+    if not paths:
+        print(__doc__)
+        return 1
+
+    # Parse each log (one pass apiece) and merge their encounters into a single
+    # pool. Each encounter is tagged with its source log (in build_report) and a
+    # stable id so the UI can address any run from any log.
+    encounters = []
+    for path in paths:
+        print(f"Parsing {os.path.basename(path)} ... (large logs take a few seconds)")
+        encounters.extend(build_report(path, me)["encounters"])
+    for i, e in enumerate(encounters):
+        e["id"] = i
+    report = {
+        "log": ", ".join(os.path.basename(p) for p in paths),
+        "logs": [os.path.basename(p) for p in paths],
+        "me": me,
+        "encounters": encounters,
+    }
+    n = len(encounters)
     report_bytes = json.dumps(report).encode("utf-8")
-    print(f"Parsed {n} encounters. Serving UI at http://localhost:{port}/")
+    print(f"Parsed {n} encounters from {len(paths)} log(s). "
+          f"Serving UI at http://localhost:{port}/")
     print("Press Ctrl+C to stop.")
     httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(report_bytes))
     try:
