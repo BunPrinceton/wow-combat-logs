@@ -61,6 +61,20 @@
   .agg{display:flex;flex-wrap:wrap;gap:6px;}
   .agg span{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:3px 8px;font-size:12px;}
   .empty{color:var(--dim);font-style:italic;padding:20px 0;}
+  .nighthead,.nightrow{display:grid;grid-template-columns:170px 56px 1fr 168px;align-items:center;gap:10px;}
+  .nighthead{padding:0 8px 6px;color:var(--dim);font-size:12px;font-weight:600;}
+  .nightrow{padding:5px 8px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:4px;}
+  .nightrow:hover{background:var(--panel2);}
+  .nightrow .boss{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;}
+  .nightrow .barwrap{background:var(--panel);border-radius:4px;overflow:hidden;height:20px;}
+  .nightrow .bar{height:100%;background:var(--bar-me);border-radius:4px;}
+  .nightrow .rk{text-align:right;font-variant-numeric:tabular-nums;font-size:12px;color:var(--dim);}
+  .nightrow .rk b{color:var(--txt);}
+  .nightrow .dnp{color:var(--dim);font-style:italic;font-size:12px;}
+  .rank{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:3px;
+    background:var(--bar);color:var(--txt);margin-left:6px;}
+  .rank.top{background:var(--accent);color:#2a1c02;}
+  .skull{color:var(--wipe);margin-left:6px;}
 </style>
 </head>
 <body>
@@ -77,8 +91,8 @@
   </main>
 </div>
 <script>
-let DATA=null, sel=0, tab="dps", me="";
-const TABS=[["dps","Damage"],["hps","Healing"],["deaths","Deaths"],["pull","Pull & Aggro"],["player","Player"]];
+let DATA=null, sel=0, tab="night", me="";
+const TABS=[["night","My Night"],["dps","Damage"],["hps","Healing"],["deaths","Deaths"],["pull","Pull & Aggro"],["player","Player"]];
 const fmt=n=>n.toLocaleString();
 const mmss=s=>Math.floor(s/60)+":"+String(Math.floor(s%60)).padStart(2,"0");
 
@@ -107,7 +121,7 @@ function renderSidebar(){
     d.innerHTML=`<div class="nm">${e.name}</div>
       <div class="meta"><span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span>
       &nbsp;pull ${e.pull} &middot; ${mmss(e.duration)}</div>`;
-    d.onclick=()=>{sel=i;renderSidebar();render();};
+    d.onclick=()=>{sel=i;if(tab==="night")tab="dps";buildTabs();renderSidebar();render();};
     el.appendChild(d);
   });
 }
@@ -127,8 +141,66 @@ function header(e){
     <span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span>
     &nbsp;pull ${e.pull} &middot; ${mmss(e.duration)} (${e.duration}s)</div>`;
 }
+function renderNight(){
+  const v=document.getElementById("view");
+  if(!me){
+    v.innerHTML=`<div class="note">Type a character name in the <b>highlight</b> box (top-right)
+      to see their whole night — DPS and raid rank on every boss.</div>`;
+    return;
+  }
+  // per-encounter stats for the highlighted character
+  let played=0, kills=0, deaths=0, pctSum=0, pctN=0, disp=me;
+  const rows=DATA.encounters.map((e,i)=>{
+    const di=e.dps.findIndex(r=>r.player.toLowerCase()===me);
+    const hi=e.hps.findIndex(r=>r.player.toLowerCase()===me);
+    if(disp===me){ if(di>=0)disp=e.dps[di].player; else if(hi>=0)disp=e.hps[hi].player; }
+    const myDps=di>=0?e.dps[di].dps:0, topDps=e.dps.length?e.dps[0].dps:0;
+    const pct=topDps?100*myDps/topDps:0;
+    const dcount=e.deaths.filter(d=>d.who.toLowerCase()===me).length;
+    if(di>=0||hi>=0){ played++; if(e.kill)kills++; }
+    if(di>=0){ pctSum+=pct; pctN++; }
+    deaths+=dcount;
+    return {i,e,pct,dcount,
+      rank:di>=0?di+1:0, total:e.dps.length, myDps,
+      healRank:hi>=0?hi+1:0, healTotal:e.hps.length, myHps:hi>=0?e.hps[hi].hps:0};
+  });
+  const avgPct=pctN?Math.round(pctSum/pctN):0;
+  const ranked=rows.filter(r=>r.rank);
+  const bestRank=ranked.length?Math.min(...ranked.map(r=>r.rank)):0;
+  let h=`<h2>${disp}'s Night</h2><div class="sub">${DATA.log} &middot; ${DATA.encounters.length} encounters logged</div>`;
+  h+=`<div class="cards">
+    <div class="card"><div class="k">Bosses played</div><div class="v">${played}</div></div>
+    <div class="card"><div class="k">Kills</div><div class="v">${kills}</div></div>
+    <div class="card"><div class="k">Deaths</div><div class="v">${deaths}</div></div>
+    <div class="card"><div class="k">Best DPS rank</div><div class="v">${bestRank?'#'+bestRank:'—'}</div></div>
+    <div class="card"><div class="k">Avg % of top</div><div class="v">${avgPct}%</div></div>
+  </div>`;
+  h+=`<div class="nighthead"><div>boss</div><div>result</div><div>DPS vs top dealer</div>
+    <div style="text-align:right">my output &middot; rank</div></div>`;
+  h+=rows.map(r=>{
+    const tag=`<span class="tag ${r.e.kill?'kill':'wipe'}">${r.e.kill?'KILL':'WIPE'}</span>`;
+    const skull=r.dcount?`<span class="skull" title="died ${r.dcount}×">&#9760;${r.dcount>1?r.dcount:''}</span>`:'';
+    if(!r.rank && !r.healRank){
+      return `<div class="nightrow" data-i="${r.i}">
+        <div class="boss">${r.e.name}</div><div>${tag}</div>
+        <div class="dnp">— did not participate —</div><div class="rk">${skull}</div></div>`;
+    }
+    const chip=r.rank?`<span class="rank ${r.rank===1?'top':''}">#${r.rank}/${r.total}</span>`:'';
+    const out=r.rank?`<b>${fmt(Math.round(r.myDps))}</b> dps`
+                    :`<b>${fmt(Math.round(r.myHps))}</b> hps`;
+    return `<div class="nightrow" data-i="${r.i}">
+      <div class="boss">${r.e.name}</div><div>${tag}</div>
+      <div class="barwrap"><div class="bar" style="width:${r.pct.toFixed(1)}%"></div></div>
+      <div class="rk">${out}${chip}${skull}</div></div>`;
+  }).join("");
+  v.innerHTML=h;
+  v.querySelectorAll(".nightrow").forEach(el=>{
+    el.onclick=()=>{sel=+el.dataset.i;tab="dps";buildTabs();renderSidebar();render();};
+  });
+}
 function render(){
   const e=DATA.encounters[sel], v=document.getElementById("view");
+  if(tab==="night"){ renderNight(); return; }
   if(tab==="dps"){
     v.innerHTML=header(e)+ (e.dps.length?bars(e.dps,"dps","player",null,
       r=>`<b>${fmt(Math.round(r.dps))}</b> dps${r.petPct?` &middot; ${r.petPct}% pet`:""}`)

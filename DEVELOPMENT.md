@@ -57,11 +57,19 @@ hunter Call Pet). Threat is NOT in the log — the `pull`/aggro views are
 *inferred* from first damage on the boss + who the boss auto-attacks.
 
 ## Roadmap (build wherever)
-1. **"My Night" overview** — Nazna's DPS + raid rank across every boss on one
-   screen.
+1. ~~**"My Night" overview**~~ — DONE. New default **My Night** tab in the web UI:
+   for the highlighted character (`--me`), one screen showing DPS + raid rank
+   (#/total) on every boss, a bar vs the top dealer, death markers, and summary
+   cards (bosses played, kills, deaths, best rank, avg % of top). Click any row
+   to jump into that fight's Damage tab. Pure frontend (`index.html`,
+   `renderNight()`) — derived from the existing `/api/report` JSON, no parser
+   changes. *Not yet mirrored as a CLI command — see idea below.*
 2. **Week-over-week comparison in the UI** — the CLI `compare` command exists;
    surface it in the web UI. Also let `compare` diff two pulls within the *same*
    log via `--pull`.
-3. **Flame Shock uptime / cast efficiency** view for tightening Ele parses.
-4. Later: interrupts / dispels / spell-uptime tables; one combined
+3. CLI parity for "My Night": a `night <char>` command printing the same
+   per-boss DPS + rank table. (Web version is done; CLI still TODO — would need a
+   single-pass aggregator in `wowlogs.py` to avoid re-scanning the log per fight.)
+4. **Flame Shock uptime / cast efficiency** view for tightening Ele parses.
+5. Later: interrupts / dispels / spell-uptime tables; one combined
    `report "<boss>"` that prints dps + hps + deaths together.
