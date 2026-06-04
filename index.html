@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WoW Log Analyzer</title>
+<style>
+  :root{
+    --bg:#14161c; --panel:#1c1f28; --panel2:#232733; --line:#2e3340;
+    --txt:#e6e8ee; --dim:#9aa3b2; --accent:#f0a020; --me:#3fb0ff;
+    --bar:#3a4358; --bar-me:#1d5a86; --kill:#4caf6a; --wipe:#c8503a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.4 "Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--txt);}
+  header{padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  header h1{font-size:15px;margin:0;font-weight:600;}
+  header .log{color:var(--dim);font-size:12px;}
+  header .me{margin-left:auto;display:flex;align-items:center;gap:6px;}
+  header input{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:5px;padding:4px 8px;width:120px;}
+  .layout{display:flex;height:calc(100vh - 49px);}
+  aside{width:230px;flex:none;overflow-y:auto;background:var(--panel);border-right:1px solid var(--line);}
+  aside .enc{padding:9px 14px;border-bottom:1px solid var(--line);cursor:pointer;}
+  aside .enc:hover{background:var(--panel2);}
+  aside .enc.sel{background:var(--panel2);border-left:3px solid var(--accent);padding-left:11px;}
+  aside .enc .nm{font-weight:600;}
+  aside .enc .meta{font-size:11px;color:var(--dim);margin-top:2px;}
+  .tag{font-size:10px;padding:1px 6px;border-radius:3px;font-weight:700;}
+  .tag.kill{background:var(--kill);color:#06210f;}
+  .tag.wipe{background:var(--wipe);color:#2a0a05;}
+  main{flex:1;overflow-y:auto;padding:18px 22px;}
+  .tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--line);}
+  .tabs button{background:none;border:none;color:var(--dim);padding:8px 14px;cursor:pointer;
+    font-size:14px;border-bottom:2px solid transparent;}
+  .tabs button:hover{color:var(--txt);}
+  .tabs button.act{color:var(--accent);border-bottom-color:var(--accent);}
+  h2{font-size:18px;margin:0 0 2px;}
+  .sub{color:var(--dim);font-size:12px;margin-bottom:16px;}
+  .row{display:grid;grid-template-columns:170px 1fr 130px;align-items:center;gap:10px;
+    padding:3px 0;}
+  .row .who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .row .who.me{color:var(--me);font-weight:700;}
+  .row .barwrap{background:var(--panel);border-radius:4px;overflow:hidden;height:20px;position:relative;}
+  .row .bar{height:100%;background:var(--bar);border-radius:4px;}
+  .row.me .bar{background:var(--bar-me);}
+  .row .num{text-align:right;font-variant-numeric:tabular-nums;color:var(--dim);font-size:12px;}
+  .row .num b{color:var(--txt);}
+  table{border-collapse:collapse;width:100%;max-width:720px;}
+  th,td{text-align:right;padding:5px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;}
+  th:first-child,td:first-child{text-align:left;}
+  th{color:var(--dim);font-weight:600;font-size:12px;}
+  select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:5px;padding:5px 8px;margin-bottom:14px;}
+  .cards{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:18px;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 16px;min-width:120px;}
+  .card .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+  .card .v{font-size:22px;font-weight:700;margin-top:3px;}
+  .note{color:var(--dim);font-size:12px;background:var(--panel);border-left:3px solid var(--accent);
+    padding:8px 12px;border-radius:4px;margin-bottom:14px;}
+  .agg{display:flex;flex-wrap:wrap;gap:6px;}
+  .agg span{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:3px 8px;font-size:12px;}
+  .empty{color:var(--dim);font-style:italic;padding:20px 0;}
+</style>
+</head>
+<body>
+<header>
+  <h1>WoW Log Analyzer</h1>
+  <span class="log" id="logname"></span>
+  <span class="me"><label>highlight</label><input id="meInput" placeholder="character"></span>
+</header>
+<div class="layout">
+  <aside id="encList"></aside>
+  <main>
+    <div class="tabs" id="tabs"></div>
+    <div id="view"></div>
+  </main>
+</div>
+<script>
+let DATA=null, sel=0, tab="dps", me="";
+const TABS=[["dps","Damage"],["hps","Healing"],["deaths","Deaths"],["pull","Pull & Aggro"],["player","Player"]];
+const fmt=n=>n.toLocaleString();
+const mmss=s=>Math.floor(s/60)+":"+String(Math.floor(s%60)).padStart(2,"0");
+
+fetch("/api/report").then(r=>r.json()).then(d=>{
+  DATA=d; me=(d.me||"").toLowerCase();
+  document.getElementById("logname").textContent=d.log;
+  document.getElementById("meInput").value=d.me||"";
+  buildTabs(); renderSidebar(); render();
+});
+document.getElementById("meInput").addEventListener("input",e=>{me=e.target.value.trim().toLowerCase();render();});
+
+function buildTabs(){
+  const t=document.getElementById("tabs"); t.innerHTML="";
+  TABS.forEach(([k,label])=>{
+    const b=document.createElement("button");
+    b.textContent=label; b.className=k===tab?"act":"";
+    b.onclick=()=>{tab=k;buildTabs();render();};
+    t.appendChild(b);
+  });
+}
+function renderSidebar(){
+  const el=document.getElementById("encList"); el.innerHTML="";
+  DATA.encounters.forEach((e,i)=>{
+    const d=document.createElement("div");
+    d.className="enc"+(i===sel?" sel":"");
+    d.innerHTML=`<div class="nm">${e.name}</div>
+      <div class="meta"><span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span>
+      &nbsp;pull ${e.pull} &middot; ${mmss(e.duration)}</div>`;
+    d.onclick=()=>{sel=i;renderSidebar();render();};
+    el.appendChild(d);
+  });
+}
+function bars(rows, valKey, labelKey, fmtVal, fmtRight){
+  const max=Math.max(...rows.map(r=>r[valKey]),1);
+  return rows.map(r=>{
+    const isMe=me && r[labelKey].toLowerCase()===me;
+    const w=(100*r[valKey]/max).toFixed(1);
+    return `<div class="row ${isMe?'me':''}">
+      <div class="who ${isMe?'me':''}">${r[labelKey]}</div>
+      <div class="barwrap"><div class="bar" style="width:${w}%"></div></div>
+      <div class="num">${fmtRight(r)}</div></div>`;
+  }).join("");
+}
+function header(e){
+  return `<h2>${e.name}</h2><div class="sub">
+    <span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span>
+    &nbsp;pull ${e.pull} &middot; ${mmss(e.duration)} (${e.duration}s)</div>`;
+}
+function render(){
+  const e=DATA.encounters[sel], v=document.getElementById("view");
+  if(tab==="dps"){
+    v.innerHTML=header(e)+ (e.dps.length?bars(e.dps,"dps","player",null,
+      r=>`<b>${fmt(Math.round(r.dps))}</b> dps${r.petPct?` &middot; ${r.petPct}% pet`:""}`)
+      :`<div class="empty">no damage</div>`);
+  }else if(tab==="hps"){
+    v.innerHTML=header(e)+ (e.hps.length?bars(e.hps,"hps","player",null,
+      r=>`<b>${fmt(Math.round(r.hps))}</b> hps &middot; ${r.overPct}% OH`)
+      :`<div class="empty">no healing</div>`);
+  }else if(tab==="deaths"){
+    let h=header(e);
+    if(!e.deaths.length){h+=`<div class="empty">no player deaths — clean kill!</div>`;}
+    else{h+=`<table><tr><th>time</th><th>who</th><th>killed by</th><th>spell</th><th>hit</th></tr>`+
+      e.deaths.map(d=>{const isMe=me&&d.who.toLowerCase()===me;
+        return `<tr><td>${mmss(d.t)}</td><td style="text-align:left" class="${isMe?'who me':''}">${d.who}</td>
+        <td style="text-align:left">${d.by}</td><td style="text-align:left">${d.spell}</td><td>${fmt(d.amount)}</td></tr>`;
+      }).join("")+`</table>`;}
+    v.innerHTML=h;
+  }else if(tab==="pull"){
+    let h=header(e)+`<div class="note">Threat isn't recorded in combat logs. These are <b>inferred</b>:
+      the opener = first player hit landed on the boss; the timeline = who the boss was auto-attacking.</div>`;
+    if(e.first_on_boss){const f=e.first_on_boss;
+      h+=`<div class="cards"><div class="card"><div class="k">Pull started by</div>
+        <div class="v" ${me&&f.who.toLowerCase()===me?'style="color:var(--me)"':''}>${f.who}</div>
+        <div class="k">${f.spell} @ ${f.t}s</div></div></div>`;}
+    h+=`<h2 style="font-size:14px">Boss melee target over time (≈ aggro)</h2>`;
+    h+= e.aggro.length? `<div class="agg">`+e.aggro.map(a=>{
+        const isMe=me&&a.target.toLowerCase()===me;
+        return `<span ${isMe?'style="color:var(--me);border-color:var(--me)"':''}>${mmss(a.t)} → ${a.target}</span>`;
+      }).join("")+`</div>` : `<div class="empty">boss did no resolvable melee swings</div>`;
+    v.innerHTML=h;
+  }else if(tab==="player"){
+    const names=Object.keys(e.players).sort();
+    let cur=me&&e.players[Object.keys(e.players).find(n=>n.toLowerCase()===me)]?
+      Object.keys(e.players).find(n=>n.toLowerCase()===me):(window._pl&&e.players[window._pl]?window._pl:names[0]);
+    window._pl=cur;
+    let h=header(e);
+    h+=`<select id="plSel">`+names.map(n=>`<option ${n===cur?'selected':''}>${n}</option>`).join("")+`</select>`;
+    if(cur){const p=e.players[cur];
+      h+=`<div class="cards">
+        <div class="card"><div class="k">Damage</div><div class="v">${fmt(p.damage)}</div><div class="k">${fmt(Math.round(p.dps))} DPS</div></div>
+        ${p.heal?`<div class="card"><div class="k">Healing (eff)</div><div class="v">${fmt(p.heal)}</div><div class="k">${fmt(Math.round(p.hps))} HPS</div></div>`:""}
+      </div>`;
+      if(p.spells.length){
+        const tot=p.damage||1;
+        h+=`<table><tr><th>spell</th><th>damage</th><th>%</th><th>hits</th><th>crit%</th><th>max</th></tr>`+
+          p.spells.map(s=>`<tr><td>${s.spell}</td><td>${fmt(s.dmg)}</td>
+            <td>${Math.round(100*s.dmg/tot)}%</td><td>${s.hits}</td>
+            <td>${s.hits?Math.round(100*s.crits/s.hits):0}%</td><td>${fmt(s.max)}</td></tr>`).join("")+`</table>`;
+      }
+      if(p.healspells.length){
+        h+=`<h2 style="font-size:14px;margin-top:18px">Healing</h2>
+          <table><tr><th>spell</th><th>eff heal</th><th>overheal%</th><th>casts</th></tr>`+
+          p.healspells.map(s=>`<tr><td>${s.spell}</td><td>${fmt(s.eff)}</td>
+            <td>${(s.eff+s.over)?Math.round(100*s.over/(s.eff+s.over)):0}%</td><td>${s.hits}</td></tr>`).join("")+`</table>`;
+      }
+    }
+    v.innerHTML=h;
+    const selEl=document.getElementById("plSel");
+    if(selEl)selEl.onchange=ev=>{window._pl=ev.target.value;render();};
+  }
+}
+</script>
+</body>
+</html>
