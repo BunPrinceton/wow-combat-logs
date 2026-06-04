@@ -1,0 +1,4 @@
+# Never commit raw uncompressed logs (too big for GitHub). Commit the .gz instead.
+*.txt
+logs/*.txt
+!*.txt.gz
