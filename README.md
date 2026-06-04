@@ -7,10 +7,14 @@ These are the *advanced* combat log format (`COMBAT_LOG_VERSION 9`).
 
 ## Contents
 
-| File | Raid | Notes |
-|------|------|-------|
-| `logs/WoWCombatLog-060226_210103.txt.gz` | **SSC** (Serpentshrine Cavern) + Gruul's Lair | all 6 SSC bosses |
-| `logs/WoWCombatLog-060326_205851.txt.gz` | **TK** (Tempest Keep / The Eye) | all 4 bosses |
+**23 raid logs** spanning **Mar 13 → Jun 3, 2026** (~3 months / one season), all gzipped.
+
+- `logs/WoWCombatLog-*.txt.gz` — the 2 most recent (live) logs
+- `logs/Archive-WoWCombatLog-*.txt.gz` — 21 older logs Archon moved to its
+  `warcraftlogsarchive/` folder after upload (it archives, doesn't delete)
+
+The date is encoded in the filename as `MMDDYY_HHMMSS` (local). Sorted by name,
+the `Archive-` files group together and run chronologically.
 
 Main character: **Nazna** (Dreamscythe-US).
 

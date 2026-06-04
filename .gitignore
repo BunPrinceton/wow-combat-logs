@@ -3,6 +3,6 @@
 logs/*.txt
 !*.txt.gz
 
-# Python bytecode — never commit
+# Python bytecode cache — auto-generated, machine-specific, disposable.
 __pycache__/
 *.pyc
