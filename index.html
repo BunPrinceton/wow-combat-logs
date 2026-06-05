@@ -198,7 +198,7 @@ function r1Label(){
 let pick={boss:null,log:null};         // what the open menu is drilled into
 function toggleR1Menu(){
   const menu=document.getElementById("r1menu"); if(!menu) return;
-  if(menu.hidden){ pick={boss:bossOf(r1),log:logOf(r1)}; menu.hidden=false; renderR1Menu();
+  if(menu.hidden){ pick={boss:null,log:null}; menu.hidden=false; renderR1Menu();   // start with only the boss list
     document.removeEventListener("click",onDocClickR1); document.addEventListener("click",onDocClickR1);
   } else closeR1Menu();
 }
