@@ -150,7 +150,10 @@ function zonesFor(encs){
 }
 let openNights={};                       // log name -> expanded?
 const logOf=idx=>((runs()[idx]||{}).log)||"";
+const bossOf=idx=>((runs()[idx]||{}).name)||"";
 function ensureOpenFor(idx){ openNights[logOf(idx)]=true; }   // keep selection visible
+// Run 2 only ever compares like-for-like; drop it if it no longer matches Run 1's boss.
+function syncR2(){ if(r2!==null && bossOf(r2)!==bossOf(r1)) r2=null; }
 
 fetch("/api/report").then(r=>r.json()).then(d=>{
   DATA=d; me=(d.me||"").toLowerCase();
@@ -182,12 +185,18 @@ function buildRunbar(){
   // so that view stays exactly as it was before compare was added.
   if(tab==="night"){ bar.style.display="none"; bar.innerHTML=""; return; }
   bar.style.display="flex";
-  const opts=(selIdx,none)=>(none?`<option value="">— none (single run) —</option>`:"")+
-    runs().map((e,i)=>`<option value="${i}" ${i===selIdx?'selected':''}>${runLabel(e)}</option>`).join("");
-  bar.innerHTML=`<label>Run 1</label><select id="r1sel">${opts(r1,false)}</select>
-    <label>Run 2</label><select id="r2sel">${opts(r2,true)}</select>
+  // Run 1: any run. Run 2: only OTHER pulls of the same boss as Run 1 (like-for-like).
+  const boss=bossOf(r1);
+  const r1opts=runs().map((e,i)=>`<option value="${i}" ${i===r1?'selected':''}>${runLabel(e)}</option>`).join("");
+  const matches=runs().map((e,i)=>({e,i})).filter(x=>x.i!==r1 && x.e.name===boss);
+  const r2opts=`<option value="">— none (single run) —</option>`+
+    matches.map(x=>`<option value="${x.i}" ${x.i===r2?'selected':''}>${runLabel(x.e)}</option>`).join("");
+  const noMatch=matches.length===0;
+  bar.innerHTML=`<label>Run 1</label><select id="r1sel">${r1opts}</select>
+    <label>Run 2</label><select id="r2sel" ${noMatch?'disabled':''}
+      title="${noMatch?`no other logged pulls of ${boss}`:`other logged pulls of ${boss}`}">${r2opts}</select>
     <button class="swap" id="swapBtn" title="Swap Run 1 and Run 2">⇄ swap</button>`;
-  document.getElementById("r1sel").onchange=e=>{r1=+e.target.value;ensureOpenFor(r1);renderSidebar();render();};
+  document.getElementById("r1sel").onchange=e=>{r1=+e.target.value;syncR2();ensureOpenFor(r1);buildRunbar();renderSidebar();render();};
   document.getElementById("r2sel").onchange=e=>{r2=e.target.value===""?null:+e.target.value;if(r2!==null)ensureOpenFor(r2);renderSidebar();render();};
   document.getElementById("swapBtn").onclick=()=>{if(r2!==null){[r1,r2]=[r2,r1];ensureOpenFor(r1);buildRunbar();renderSidebar();render();}};
 }
@@ -206,7 +215,7 @@ function renderSidebar(){
     d.className="enc"+(single?"":" child")+(i===r1?" sel":"")+(i===r2?" sel2":"");
     d.innerHTML=`<div class="nm">${e.name}</div>
       <div class="meta">${tagFor(e)}&nbsp;pull ${e.pull} &middot; ${mmss(e.duration)}</div>`;
-    d.onclick=()=>{r1=i;if(tab==="night")tab="dps";buildTabs();buildRunbar();renderSidebar();render();};
+    d.onclick=()=>{r1=i;syncR2();if(tab==="night")tab="dps";buildTabs();buildRunbar();renderSidebar();render();};
     el.appendChild(d);
   };
   if(single){ groups.forEach(g=>g.items.forEach(renderEnc)); return; }
