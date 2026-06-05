@@ -27,6 +27,16 @@ import wowlogs as wl  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def densify(bins, length):
+    """Turn a {second -> amount} dict into a 0-filled list of `length` seconds.
+    Any event past the last second (a sliver at the very end) folds into the last bin."""
+    out = [0] * length
+    for sec, amt in bins.items():
+        if sec >= 0:
+            out[min(sec, length - 1)] += amt
+    return out
+
+
 def build_report(path, me=None):
     """Single pass over the log -> one JSON-able dict covering every encounter."""
     encs = wl.find_encounters(path)
@@ -39,13 +49,16 @@ def build_report(path, me=None):
             "dmg": {}, "heal": {}, "players": {}, "deaths": [],
             "last_hit": {}, "first_on_boss": None,
             "aggro": [], "cur_target": None,
+            # per-second raid throughput bins {second -> raw amount} (for time charts)
+            "dmg_ps": defaultdict(int), "heal_ps": defaultdict(int),
         }
 
     accs = [new_acc(e) for e in encs]
 
     def player_slot(a, pname):
         return a["players"].setdefault(
-            pname, {"damage": 0, "heal": 0, "spells": {}, "healspells": {}})
+            pname, {"damage": 0, "heal": 0, "spells": {}, "healspells": {},
+                    "dmg_ps": defaultdict(int), "heal_ps": defaultdict(int)})
 
     idx = 0
     for ev in wl.iter_events(path):
@@ -85,13 +98,16 @@ def build_report(path, me=None):
                 splabel = None
             else:
                 key = None
+            sec = int((ts - enc["start"]).total_seconds())
             if key is not None:
                 slot = a["dmg"].setdefault(key, [wl.short(disp), 0, 0])
                 slot[1] += amt
                 slot[2] += petamt
+                a["dmg_ps"][sec] += amt  # raid throughput (incl. pets), per second
             if owner_player is not None:
                 ps = player_slot(a, owner_player)
                 ps["damage"] += amt
+                ps["dmg_ps"][sec] += amt  # this player's throughput (incl. their pets)
                 sp = ps["spells"].setdefault(
                     splabel, {"dmg": 0, "hits": 0, "crits": 0, "max": 0})
                 sp["dmg"] += amt
@@ -120,8 +136,11 @@ def build_report(path, me=None):
             slot = a["heal"].setdefault(guid, [wl.short(hname), 0, 0])
             slot[1] += eff
             slot[2] += over
+            sec = int((ts - enc["start"]).total_seconds())
+            a["heal_ps"][sec] += eff  # raid effective HPS, per second
             ps = player_slot(a, wl.short(hname))
             ps["heal"] += eff
+            ps["heal_ps"][sec] += eff  # this healer's throughput, per second
             hs = ps["healspells"].setdefault(spell, {"eff": 0, "over": 0, "hits": 0})
             hs["eff"] += eff
             hs["over"] += over
@@ -142,6 +161,7 @@ def build_report(path, me=None):
         dur = (e["end"] - e["start"]).total_seconds() or 1
         dmg_rows = sorted(a["dmg"].values(), key=lambda r: r[1], reverse=True)
         heal_rows = sorted(a["heal"].values(), key=lambda r: r[1], reverse=True)
+        nbins = int(dur)
         players = {}
         for pname, ps in a["players"].items():
             players[pname] = {
@@ -157,6 +177,11 @@ def build_report(path, me=None):
                     for s, v in sorted(ps["healspells"].items(),
                                        key=lambda kv: kv[1]["eff"], reverse=True)],
             }
+            # per-second raw throughput for the time charts; omit when empty to trim payload
+            if ps["dmg_ps"]:
+                players[pname]["dmgSeries"] = densify(ps["dmg_ps"], nbins)
+            if ps["heal_ps"]:
+                players[pname]["healSeries"] = densify(ps["heal_ps"], nbins)
         out_encs.append({
             "log": os.path.basename(path),
             "name": e["name"], "pull": e["pull"], "kill": e["kill"],
@@ -170,6 +195,8 @@ def build_report(path, me=None):
             "deaths": a["deaths"],
             "first_on_boss": a["first_on_boss"],
             "aggro": a["aggro"],
+            "series": {"dmg": densify(a["dmg_ps"], nbins),
+                       "heal": densify(a["heal_ps"], nbins)},
             "players": players,
         })
     return {"log": os.path.basename(path), "me": me, "encounters": out_encs}
