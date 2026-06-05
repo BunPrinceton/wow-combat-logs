@@ -25,8 +25,18 @@
   aside .enc:hover{background:var(--panel2);}
   aside .enc.sel{background:var(--panel2);border-left:3px solid var(--accent);padding-left:11px;}
   aside .enc.sel2{border-left:3px solid var(--me);padding-left:11px;}
-  aside .loghdr{padding:7px 14px;font-size:11px;color:var(--dim);text-transform:uppercase;
-    letter-spacing:.04em;background:var(--bg);border-bottom:1px solid var(--line);position:sticky;top:0;}
+  aside .nightgrp{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;
+    background:var(--bg);border-bottom:1px solid var(--line);font-size:12px;user-select:none;}
+  aside .nightgrp:hover{background:var(--panel2);}
+  aside .nightgrp .caret{display:inline-block;width:9px;color:var(--dim);font-size:10px;
+    transition:transform .12s;}
+  aside .nightgrp.open .caret{transform:rotate(90deg);}
+  aside .nightgrp.has-sel .nd{color:var(--accent);}
+  aside .nightgrp .nd{font-weight:700;color:var(--txt);white-space:nowrap;}
+  aside .nightgrp .nz{color:var(--accent);font-weight:600;font-size:11px;}
+  aside .nightgrp .nk{margin-left:auto;color:var(--dim);font-size:11px;white-space:nowrap;}
+  aside .enc.child{padding-left:24px;}
+  aside .enc.child.sel{padding-left:21px;}
   aside .enc .nm{font-weight:600;}
   aside .enc .meta{font-size:11px;color:var(--dim);margin-top:2px;}
   .tag{font-size:10px;padding:1px 6px;border-radius:3px;font-weight:700;}
@@ -114,18 +124,48 @@ const mmss=s=>Math.floor(s/60)+":"+String(Math.floor(s%60)).padStart(2,"0");
 const runs=()=>DATA.encounters;
 const multiLog=()=>DATA.logs && DATA.logs.length>1;
 
+// ---- raid-night grouping (sidebar) -----------------------------------------
+// Map each boss to its instance so a night can be labelled by zone(s).
+const ZONE={
+  "Hydross the Unstable":"SSC","The Lurker Below":"SSC","Leotheras the Blind":"SSC",
+  "Fathom-Lord Karathress":"SSC","Morogrim Tidewalker":"SSC","Lady Vashj":"SSC",
+  "High King Maulgar":"Gruul","Gruul the Dragonkiller":"Gruul",
+  "Al'ar":"TK","Void Reaver":"TK","High Astromancer Solarian":"TK","Kael'thas Sunstrider":"TK",
+  "Magtheridon":"Mag",
+  "Attumen the Huntsman":"Kara","Moroes":"Kara","Maiden of Virtue":"Kara","Opera Hall":"Kara",
+  "Nightbane":"Kara","The Curator":"Kara","Terestian Illhoof":"Kara","Shade of Aran":"Kara",
+  "Netherspite":"Kara","Chess Event":"Kara","Prince Malchezaar":"Kara"};
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function nightDate(log){
+  const m=(log||"").match(/(\d\d)(\d\d)(\d\d)_\d{6}/);
+  if(!m) return log||"run";
+  const mm=+m[1], dd=+m[2], yy=2000+ +m[3];
+  const d=new Date(yy,mm-1,dd);
+  return `${DOW[d.getDay()]} ${MONTHS[mm-1]} ${dd}`;
+}
+function zonesFor(encs){
+  const zs=[]; encs.forEach(e=>{const z=ZONE[e.name]; if(z&&!zs.includes(z))zs.push(z);});
+  return zs.join("/");
+}
+let openNights={};                       // log name -> expanded?
+const logOf=idx=>((runs()[idx]||{}).log)||"";
+function ensureOpenFor(idx){ openNights[logOf(idx)]=true; }   // keep selection visible
+
 fetch("/api/report").then(r=>r.json()).then(d=>{
   DATA=d; me=(d.me||"").toLowerCase();
-  document.getElementById("logname").textContent=d.log;
+  document.getElementById("logname").textContent=
+    multiLog()?`${d.logs.length} logs · ${d.encounters.length} encounters`:d.log;
   document.getElementById("meInput").value=d.me||"";
+  ensureOpenFor(r1);
   buildTabs(); buildRunbar(); renderSidebar(); render();
 });
 document.getElementById("meInput").addEventListener("input",e=>{me=e.target.value.trim().toLowerCase();render();});
 
 function tagFor(e){return `<span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span>`;}
 function runLabel(e){
-  return `${e.name} · pull ${e.pull} · ${e.kill?'KILL':'wipe'} · ${mmss(e.duration)}`+
-    (multiLog()?` [${e.log}]`:"");
+  const base=`${e.name} · ${e.kill?'KILL':'wipe'} · pull ${e.pull} · ${mmss(e.duration)}`;
+  return multiLog()?`${nightDate(e.log)} · ${base}`:base;
 }
 function buildTabs(){
   const t=document.getElementById("tabs"); t.innerHTML="";
@@ -147,25 +187,43 @@ function buildRunbar(){
   bar.innerHTML=`<label>Run 1</label><select id="r1sel">${opts(r1,false)}</select>
     <label>Run 2</label><select id="r2sel">${opts(r2,true)}</select>
     <button class="swap" id="swapBtn" title="Swap Run 1 and Run 2">⇄ swap</button>`;
-  document.getElementById("r1sel").onchange=e=>{r1=+e.target.value;renderSidebar();render();};
-  document.getElementById("r2sel").onchange=e=>{r2=e.target.value===""?null:+e.target.value;renderSidebar();render();};
-  document.getElementById("swapBtn").onclick=()=>{if(r2!==null){[r1,r2]=[r2,r1];buildRunbar();renderSidebar();render();}};
+  document.getElementById("r1sel").onchange=e=>{r1=+e.target.value;ensureOpenFor(r1);renderSidebar();render();};
+  document.getElementById("r2sel").onchange=e=>{r2=e.target.value===""?null:+e.target.value;if(r2!==null)ensureOpenFor(r2);renderSidebar();render();};
+  document.getElementById("swapBtn").onclick=()=>{if(r2!==null){[r1,r2]=[r2,r1];ensureOpenFor(r1);buildRunbar();renderSidebar();render();}};
 }
 function renderSidebar(){
   const el=document.getElementById("encList"); el.innerHTML="";
-  let curLog=null;
+  // group encounters by source log (raid night), preserving order
+  const groups=[]; const byLog={};
   runs().forEach((e,i)=>{
-    if(multiLog() && e.log!==curLog){
-      curLog=e.log;
-      const hd=document.createElement("div"); hd.className="loghdr"; hd.textContent=e.log;
-      el.appendChild(hd);
-    }
+    const key=e.log||"";
+    if(!byLog[key]){ byLog[key]={log:key,items:[]}; groups.push(byLog[key]); }
+    byLog[key].items.push({e,i});
+  });
+  const single=groups.length<=1;          // one night: no need to collapse
+  const renderEnc=({e,i})=>{
     const d=document.createElement("div");
-    d.className="enc"+(i===r1?" sel":"")+(i===r2?" sel2":"");
+    d.className="enc"+(single?"":" child")+(i===r1?" sel":"")+(i===r2?" sel2":"");
     d.innerHTML=`<div class="nm">${e.name}</div>
       <div class="meta">${tagFor(e)}&nbsp;pull ${e.pull} &middot; ${mmss(e.duration)}</div>`;
     d.onclick=()=>{r1=i;if(tab==="night")tab="dps";buildTabs();buildRunbar();renderSidebar();render();};
     el.appendChild(d);
+  };
+  if(single){ groups.forEach(g=>g.items.forEach(renderEnc)); return; }
+  groups.forEach(g=>{
+    const open=!!openNights[g.log];
+    const hasSel=g.items.some(x=>x.i===r1||x.i===r2);
+    const kills=g.items.filter(x=>x.e.kill).length;
+    const zones=zonesFor(g.items.map(x=>x.e));
+    const hd=document.createElement("div");
+    hd.className="nightgrp"+(open?" open":"")+(hasSel?" has-sel":"");
+    hd.innerHTML=`<span class="caret">&#9656;</span>
+      <span class="nd">${nightDate(g.log)}</span>
+      ${zones?`<span class="nz">${zones}</span>`:""}
+      <span class="nk">${kills} ${kills===1?'kill':'kills'}</span>`;
+    hd.onclick=()=>{ openNights[g.log]=!openNights[g.log]; renderSidebar(); };
+    el.appendChild(hd);
+    if(open) g.items.forEach(renderEnc);
   });
 }
 function bars(rows, valKey, labelKey, fmtVal, fmtRight){
@@ -210,7 +268,8 @@ function renderNight(){
   const avgPct=pctN?Math.round(pctSum/pctN):0;
   const ranked=rows.filter(r=>r.rank);
   const bestRank=ranked.length?Math.min(...ranked.map(r=>r.rank)):0;
-  let h=`<h2>${disp}'s Night</h2><div class="sub">${DATA.log} &middot; ${DATA.encounters.length} encounters logged</div>`;
+  const nNights=new Set(DATA.encounters.map(e=>e.log)).size;
+  let h=`<h2>${disp}'s Night</h2><div class="sub">${nNights} night${nNights>1?'s':''} &middot; ${DATA.encounters.length} encounters logged</div>`;
   h+=`<div class="cards">
     <div class="card"><div class="k">Bosses played</div><div class="v">${played}</div></div>
     <div class="card"><div class="k">Kills</div><div class="v">${kills}</div></div>
@@ -238,7 +297,7 @@ function renderNight(){
   }).join("");
   v.innerHTML=h;
   v.querySelectorAll(".nightrow").forEach(el=>{
-    el.onclick=()=>{r1=+el.dataset.i;r2=null;tab="dps";buildTabs();buildRunbar();renderSidebar();render();};
+    el.onclick=()=>{r1=+el.dataset.i;r2=null;ensureOpenFor(r1);tab="dps";buildTabs();buildRunbar();renderSidebar();render();};
   });
 }
 function render(){
