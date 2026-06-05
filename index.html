@@ -210,31 +210,37 @@ function onDocClickR1(ev){
   const p=document.getElementById("r1pick");
   if(p && !p.contains(ev.target)) closeR1Menu();
 }
+// drilling into a level just flies out the next column; guard prevents re-render loops
+function selBoss(name){ if(pick.boss===name) return; pick={boss:name,log:null}; renderR1Menu(); }
+function selDate(log){ if(pick.log===log) return; pick.log=log; renderR1Menu(); }
+function pickPull(i){ r1=i; syncR2(); ensureOpenFor(r1); closeR1Menu(); buildRunbar(); renderSidebar(); render(); }
 function renderR1Menu(){
   const cb=document.getElementById("pcolBoss"), cd=document.getElementById("pcolDate"), cp=document.getElementById("pcolPull");
   if(!cb) return;
-  // column 1: bosses
+  // column 1: bosses — hover (or click) flies out the dates column
   cb.innerHTML="";
   bossOrder().forEach(name=>{
     const it=document.createElement("div");
     it.className="pitem"+(name===pick.boss?" on":"");
     it.innerHTML=`<span>${name}</span>${ZONE[name]?`<span class="pz">${ZONE[name]}</span>`:""}<span class="arr">&rsaquo;</span>`;
-    it.onclick=()=>{ pick={boss:name,log:null}; renderR1Menu(); };
+    it.onmouseenter=()=>selBoss(name);
+    it.onclick=ev=>{ ev.stopPropagation(); selBoss(name); };
     cb.appendChild(it);
   });
-  // column 2: dates (nights) for the chosen boss
+  // column 2: dates (nights) for the hovered boss — hover flies out the pulls column
   cd.innerHTML="";
   if(pick.boss){
     nightsForBoss(pick.boss).forEach(g=>{
       const it=document.createElement("div");
       it.className="pitem"+(g.log===pick.log?" on":"");
       it.innerHTML=`<span>${nightDate(g.log)}</span><span class="pz">${g.pulls.length} pull${g.pulls.length>1?'s':''}</span><span class="arr">&rsaquo;</span>`;
-      it.onclick=()=>{ pick.log=g.log; renderR1Menu(); };
+      it.onmouseenter=()=>selDate(g.log);
+      it.onclick=ev=>{ ev.stopPropagation(); selDate(g.log); };
       cd.appendChild(it);
     });
     cd.classList.add("show");
   } else cd.classList.remove("show");
-  // column 3: pulls for boss + date
+  // column 3: pulls for the hovered boss + date — click commits the selection
   cp.innerHTML="";
   const g=pick.boss&&pick.log?nightsForBoss(pick.boss).find(x=>x.log===pick.log):null;
   if(g){
@@ -242,7 +248,7 @@ function renderR1Menu(){
       const it=document.createElement("div");
       it.className="pitem"+(i===r1?" on":"");
       it.innerHTML=`<span>pull ${e.pull}</span><span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span><span class="pz">${mmss(e.duration)}</span>`;
-      it.onclick=()=>{ r1=i; syncR2(); ensureOpenFor(r1); closeR1Menu(); buildRunbar(); renderSidebar(); render(); };
+      it.onclick=ev=>{ ev.stopPropagation(); pickPull(i); };
       cp.appendChild(it);
     });
     cp.classList.add("show");
