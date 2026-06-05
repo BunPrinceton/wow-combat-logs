@@ -94,6 +94,27 @@
   .runbar .swap{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
     border-radius:5px;padding:5px 9px;cursor:pointer;}
   .runbar .swap:hover{border-color:var(--accent);color:var(--accent);}
+  /* cascading Run 1 picker (boss -> date -> pull) */
+  .picker{position:relative;display:inline-block;}
+  .pickbtn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:5px;
+    padding:5px 10px;cursor:pointer;max-width:360px;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;font:inherit;text-align:left;}
+  .pickbtn:hover{border-color:var(--accent);}
+  .pickbtn .cv{color:var(--dim);margin-left:6px;}
+  .pickmenu{position:absolute;top:calc(100% + 4px);left:0;z-index:50;display:flex;
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;
+    box-shadow:0 8px 24px rgba(0,0,0,.45);}
+  .pickmenu[hidden]{display:none;}
+  .pcol{display:none;flex-direction:column;min-width:150px;max-height:320px;overflow-y:auto;
+    border-right:1px solid var(--line);}
+  .pcol:last-child{border-right:none;}
+  .pcol#pcolBoss{display:flex;}
+  .pcol.show{display:flex;}
+  .pitem{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer;font-size:13px;white-space:nowrap;}
+  .pitem:hover{background:var(--panel2);}
+  .pitem.on{background:var(--panel2);color:var(--accent);}
+  .pitem .pz{margin-left:auto;color:var(--dim);font-size:11px;}
+  .pitem .arr{color:var(--dim);margin-left:2px;}
   .panels{display:flex;gap:18px;flex-wrap:wrap;}
   .panels .panel{flex:1;min-width:300px;}
   .panels .panel h3{font-size:13px;margin:0 0 8px;font-weight:600;}
@@ -155,6 +176,79 @@ function ensureOpenFor(idx){ openNights[logOf(idx)]=true; }   // keep selection 
 // Run 2 only ever compares like-for-like; drop it if it no longer matches Run 1's boss.
 function syncR2(){ if(r2!==null && bossOf(r2)!==bossOf(r1)) r2=null; }
 
+// ---- cascading Run 1 picker: boss -> date -> pull ---------------------------
+const ZONE_SEQ=["SSC","TK","Gruul","Mag","Kara"];
+function bossOrder(){
+  const seen=[]; runs().forEach(e=>{ if(!seen.includes(e.name)) seen.push(e.name); });
+  const zi=n=>{ const k=ZONE_SEQ.indexOf(ZONE[n]); return k<0?99:k; };
+  return seen.slice().sort((a,b)=> (zi(a)-zi(b)) || (seen.indexOf(a)-seen.indexOf(b)) );
+}
+function nightsForBoss(boss){          // [{log, pulls:[{e,i}]}] in encounter order
+  const map=new Map();
+  runs().forEach((e,i)=>{ if(e.name!==boss) return;
+    if(!map.has(e.log)) map.set(e.log,[]);
+    map.get(e.log).push({e,i});
+  });
+  return [...map.entries()].map(([log,pulls])=>({log,pulls}));
+}
+function r1Label(){
+  const e=runs()[r1];
+  return e?`${e.name} · ${nightDate(e.log)} · pull ${e.pull} ${e.kill?'KILL':'wipe'}`:'pick a run';
+}
+let pick={boss:null,log:null};         // what the open menu is drilled into
+function toggleR1Menu(){
+  const menu=document.getElementById("r1menu"); if(!menu) return;
+  if(menu.hidden){ pick={boss:bossOf(r1),log:logOf(r1)}; menu.hidden=false; renderR1Menu();
+    document.removeEventListener("click",onDocClickR1); document.addEventListener("click",onDocClickR1);
+  } else closeR1Menu();
+}
+function closeR1Menu(){
+  const menu=document.getElementById("r1menu"); if(menu) menu.hidden=true;
+  document.removeEventListener("click",onDocClickR1);
+}
+function onDocClickR1(ev){
+  const p=document.getElementById("r1pick");
+  if(p && !p.contains(ev.target)) closeR1Menu();
+}
+function renderR1Menu(){
+  const cb=document.getElementById("pcolBoss"), cd=document.getElementById("pcolDate"), cp=document.getElementById("pcolPull");
+  if(!cb) return;
+  // column 1: bosses
+  cb.innerHTML="";
+  bossOrder().forEach(name=>{
+    const it=document.createElement("div");
+    it.className="pitem"+(name===pick.boss?" on":"");
+    it.innerHTML=`<span>${name}</span>${ZONE[name]?`<span class="pz">${ZONE[name]}</span>`:""}<span class="arr">&rsaquo;</span>`;
+    it.onclick=()=>{ pick={boss:name,log:null}; renderR1Menu(); };
+    cb.appendChild(it);
+  });
+  // column 2: dates (nights) for the chosen boss
+  cd.innerHTML="";
+  if(pick.boss){
+    nightsForBoss(pick.boss).forEach(g=>{
+      const it=document.createElement("div");
+      it.className="pitem"+(g.log===pick.log?" on":"");
+      it.innerHTML=`<span>${nightDate(g.log)}</span><span class="pz">${g.pulls.length} pull${g.pulls.length>1?'s':''}</span><span class="arr">&rsaquo;</span>`;
+      it.onclick=()=>{ pick.log=g.log; renderR1Menu(); };
+      cd.appendChild(it);
+    });
+    cd.classList.add("show");
+  } else cd.classList.remove("show");
+  // column 3: pulls for boss + date
+  cp.innerHTML="";
+  const g=pick.boss&&pick.log?nightsForBoss(pick.boss).find(x=>x.log===pick.log):null;
+  if(g){
+    g.pulls.forEach(({e,i})=>{
+      const it=document.createElement("div");
+      it.className="pitem"+(i===r1?" on":"");
+      it.innerHTML=`<span>pull ${e.pull}</span><span class="tag ${e.kill?'kill':'wipe'}">${e.kill?'KILL':'WIPE'}</span><span class="pz">${mmss(e.duration)}</span>`;
+      it.onclick=()=>{ r1=i; syncR2(); ensureOpenFor(r1); closeR1Menu(); buildRunbar(); renderSidebar(); render(); };
+      cp.appendChild(it);
+    });
+    cp.classList.add("show");
+  } else cp.classList.remove("show");
+}
+
 fetch("/api/report").then(r=>r.json()).then(d=>{
   DATA=d; me=(d.me||"").toLowerCase();
   document.getElementById("logname").textContent=
@@ -184,19 +278,27 @@ function buildRunbar(){
   // The compare runbar doesn't apply to the My Night overview — hide it there
   // so that view stays exactly as it was before compare was added.
   if(tab==="night"){ bar.style.display="none"; bar.innerHTML=""; return; }
+  closeR1Menu();                       // tear down any open menu/listener before rebuild
   bar.style.display="flex";
-  // Run 1: any run. Run 2: only OTHER pulls of the same boss as Run 1 (like-for-like).
+  // Run 1: cascading boss -> date -> pull picker. Run 2: only OTHER pulls of the same boss.
   const boss=bossOf(r1);
-  const r1opts=runs().map((e,i)=>`<option value="${i}" ${i===r1?'selected':''}>${runLabel(e)}</option>`).join("");
   const matches=runs().map((e,i)=>({e,i})).filter(x=>x.i!==r1 && x.e.name===boss);
   const r2opts=`<option value="">— none (single run) —</option>`+
     matches.map(x=>`<option value="${x.i}" ${x.i===r2?'selected':''}>${runLabel(x.e)}</option>`).join("");
   const noMatch=matches.length===0;
-  bar.innerHTML=`<label>Run 1</label><select id="r1sel">${r1opts}</select>
+  bar.innerHTML=`<label>Run 1</label>
+    <div class="picker" id="r1pick">
+      <button class="pickbtn" id="r1btn">${r1Label()}<span class="cv">&#9662;</span></button>
+      <div class="pickmenu" id="r1menu" hidden>
+        <div class="pcol" id="pcolBoss"></div>
+        <div class="pcol" id="pcolDate"></div>
+        <div class="pcol" id="pcolPull"></div>
+      </div>
+    </div>
     <label>Run 2</label><select id="r2sel" ${noMatch?'disabled':''}
       title="${noMatch?`no other logged pulls of ${boss}`:`other logged pulls of ${boss}`}">${r2opts}</select>
     <button class="swap" id="swapBtn" title="Swap Run 1 and Run 2">⇄ swap</button>`;
-  document.getElementById("r1sel").onchange=e=>{r1=+e.target.value;syncR2();ensureOpenFor(r1);buildRunbar();renderSidebar();render();};
+  document.getElementById("r1btn").onclick=ev=>{ev.stopPropagation();toggleR1Menu();};
   document.getElementById("r2sel").onchange=e=>{r2=e.target.value===""?null:+e.target.value;if(r2!==null)ensureOpenFor(r2);renderSidebar();render();};
   document.getElementById("swapBtn").onclick=()=>{if(r2!==null){[r1,r2]=[r2,r1];ensureOpenFor(r1);buildRunbar();renderSidebar();render();}};
 }
