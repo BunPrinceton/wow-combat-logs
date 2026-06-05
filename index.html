@@ -76,6 +76,14 @@
   .panels .panel h3 .lbl{color:var(--dim);font-weight:400;font-size:12px;margin-left:6px;}
   td.pos,td .pos{color:var(--kill);} td.neg,td .neg{color:var(--wipe);}
   tr.total td{border-top:2px solid var(--line);border-bottom:none;font-weight:700;color:var(--txt);}
+  .ctrls{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
+  .ctrls label{color:var(--dim);font-size:12px;margin-right:5px;}
+  .ctrls select{margin-bottom:0;}
+  .chartwrap{width:100%;max-width:920px;}
+  canvas.chart{width:100%;height:260px;display:block;background:var(--panel);
+    border:1px solid var(--line);border-radius:6px;cursor:crosshair;}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--dim);}
+  .legend .sw{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:middle;}
 </style>
 </head>
 <body>
@@ -94,7 +102,7 @@
 </div>
 <script>
 let DATA=null, r1=0, r2=null, tab="dps", me="";
-const TABS=[["dps","Damage"],["hps","Healing"],["deaths","Deaths"],["pull","Pull & Aggro"],["player","Player"]];
+const TABS=[["dps","Damage"],["dpsTime","DPS / time"],["hps","Healing"],["hpsTime","HPS / time"],["deaths","Deaths"],["pull","Pull & Aggro"],["player","Player"]];
 const fmt=n=>n.toLocaleString();
 const mmss=s=>Math.floor(s/60)+":"+String(Math.floor(s%60)).padStart(2,"0");
 const runs=()=>DATA.encounters;
@@ -172,6 +180,7 @@ function render(){
 }
 function renderSingle(e){
   const v=document.getElementById("view");
+  if(tab==="dpsTime"||tab==="hpsTime"){ renderTimeline([e], tab==="dpsTime"?"dmg":"heal", false); return; }
   if(tab==="dps"){
     v.innerHTML=header(e)+ (e.dps.length?bars(e.dps,"dps","player",null,
       r=>`<b>${fmt(Math.round(r.dps))}</b> dps${r.petPct?` &middot; ${r.petPct}% pet`:""}`)
@@ -301,6 +310,7 @@ function twoPanels(a,b,fn){
 }
 function renderCompare(a,b){
   const v=document.getElementById("view");
+  if(tab==="dpsTime"||tab==="hpsTime"){ renderTimeline([a,b], tab==="dpsTime"?"dmg":"heal", true); return; }
   let h=cmpHeader(a,b);
   if(tab==="dps"){
     h+=cmpMetricTable(a.dps,b.dps,"player","dps","dps");
@@ -344,6 +354,142 @@ function renderCompare(a,b){
   v.innerHTML=h;
   const selEl=document.getElementById("cplSel");
   if(selEl)selEl.onchange=ev=>{window._cpl=ev.target.value;render();};
+}
+
+// ---- throughput-over-time charts ------------------------------------------
+// trailing rolling-rate: out[t] = mean of raw over the window ending at t
+function rolling(raw, W){
+  const n=raw.length, out=new Array(n); let sum=0;
+  for(let t=0;t<n;t++){ sum+=raw[t]; if(t>=W) sum-=raw[t-W]; out[t]=sum/Math.min(t+1,W); }
+  return out;
+}
+// raw per-second series for a subject ("Raid" or a player name); null if absent
+function rawSeries(e, metric, subj){
+  if(subj==="Raid") return e.series ? e.series[metric] : null;
+  const p=e.players[subj];
+  if(!p) return null;
+  return metric==="dmg" ? (p.dmgSeries||null) : (p.healSeries||null);
+}
+function niceMax(v){
+  if(v<=0) return 1;
+  const p=Math.pow(10,Math.floor(Math.log10(v))), f=v/p;
+  return (f<=1?1:f<=2?2:f<=5?5:10)*p;
+}
+function fmtK(v){
+  v=Math.round(v);
+  if(v>=1000){ const k=v/1000; return (k>=100?Math.round(k):(+k.toFixed(1)))+"k"; }
+  return String(v);
+}
+function cssVar(name,fallback){
+  const c=getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return c||fallback;
+}
+function renderTimeline(encList, metric, isCompare){
+  const v=document.getElementById("view");
+  const yLabel = metric==="dmg" ? "DPS" : "HPS";
+  const pnames=[...new Set(encList.flatMap(e=>Object.keys(e.players)))].sort();
+  const opts=["Raid",...pnames];
+  let subj=window._chartSubject;
+  if(!opts.includes(subj)) subj = pnames.find(n=>n.toLowerCase()===me) || "Raid";
+  window._chartSubject=subj;
+  const W=window._chartWin||10; window._chartWin=W;
+
+  let h = isCompare ? cmpHeader(encList[0],encList[1]) : header(encList[0]);
+  h+=`<div class="ctrls">
+    <span><label>Subject</label><select id="subjSel">`+
+      opts.map(o=>`<option ${o===subj?"selected":""}>${o}</option>`).join("")+`</select></span>
+    <span><label>Window</label><select id="winSel">`+
+      [5,10,30].map(w=>`<option value="${w}" ${w===W?"selected":""}>${w}s</option>`).join("")+`</select></span>
+    <span style="color:var(--dim);font-size:12px">${yLabel} — ${subj==="Raid"?"raid total":subj}, rolling ${W}s avg</span>
+  </div>`;
+
+  const colA=cssVar("--accent","#f0a020"), colB=cssVar("--me","#3fb0ff"), colHeal=cssVar("--kill","#4caf6a");
+  const lines=[], missing=[];
+  encList.forEach((e,i)=>{
+    const raw=rawSeries(e, metric, subj);
+    if(!raw || !raw.some(x=>x>0)){ if(isCompare) missing.push("Run "+(i?"B":"A")); return; }
+    const color = isCompare ? (i===0?colA:colB) : (metric==="dmg"?colA:colHeal);
+    const label = isCompare ? ("Run "+(i?"B":"A")+": "+runLabel(e)) : (subj==="Raid"?"Raid":subj);
+    lines.push({label, color, data: rolling(raw, W)});
+  });
+
+  function wireCtrls(){
+    const ss=document.getElementById("subjSel");
+    if(ss) ss.onchange=ev=>{window._chartSubject=ev.target.value; render();};
+    const ws=document.getElementById("winSel");
+    if(ws) ws.onchange=ev=>{window._chartWin=+ev.target.value; render();};
+  }
+  if(!lines.length){
+    h+=`<div class="empty">no ${yLabel.toLowerCase()} for ${subj} in this ${isCompare?"comparison":"pull"}</div>`;
+    v.innerHTML=h; wireCtrls(); return;
+  }
+  h+=`<div class="chartwrap"><canvas class="chart" id="tlCanvas"></canvas></div>`;
+  h+=`<div class="legend">`+lines.map(l=>`<span><span class="sw" style="background:${l.color}"></span>${l.label}</span>`).join("");
+  if(missing.length) h+=`<span>${missing.join(", ")}: no ${yLabel} for ${subj}</span>`;
+  h+=`</div>`;
+  v.innerHTML=h;
+  drawChart(document.getElementById("tlCanvas"), lines, {yLabel});
+  wireCtrls();
+
+  // redraw on resize (once-guarded), only while a time tab is showing
+  if(!window._tlResize){
+    window._tlResize=true; let rt;
+    window.addEventListener("resize",()=>{
+      if(tab!=="dpsTime"&&tab!=="hpsTime") return;
+      clearTimeout(rt); rt=setTimeout(render,150);
+    });
+  }
+}
+function drawChart(canvas, lines, opts){
+  const dpr=window.devicePixelRatio||1;
+  const W=canvas.clientWidth||canvas.parentElement.clientWidth||820, H=canvas.clientHeight||260;
+  canvas.width=Math.round(W*dpr); canvas.height=Math.round(H*dpr);
+  const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+  const padL=58,padR=14,padT=12,padB=26;
+  const xMax=Math.max(Math.max(...lines.map(l=>l.data.length))-1,1);
+  let yMax=0; lines.forEach(l=>l.data.forEach(v=>{ if(v>yMax) yMax=v; })); yMax=niceMax(yMax);
+  const xs=t=>padL+(t/xMax)*(W-padL-padR), ys=v=>padT+(1-v/yMax)*(H-padT-padB);
+  const cLine=cssVar("--line","#2e3340"), cDim=cssVar("--dim","#9aa3b2");
+  function base(){
+    ctx.clearRect(0,0,W,H);
+    ctx.font="11px system-ui,sans-serif";
+    ctx.textBaseline="middle"; ctx.textAlign="right";
+    for(let i=0;i<=4;i++){ const val=yMax*i/4, y=ys(val);
+      ctx.strokeStyle=cLine; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+      ctx.fillStyle=cDim; ctx.fillText(fmtK(val), padL-8, y); }
+    const step = xMax<=60?15: xMax<=180?30: xMax<=420?60:120;
+    ctx.textAlign="center"; ctx.textBaseline="top";
+    for(let t=0;t<=xMax;t+=step){ const x=xs(t);
+      ctx.strokeStyle=cLine; ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,H-padB); ctx.stroke();
+      ctx.fillStyle=cDim; ctx.fillText(mmss(t), x, H-padB+5); }
+    lines.forEach(l=>{ ctx.strokeStyle=l.color; ctx.lineWidth=1.8; ctx.beginPath();
+      l.data.forEach((v,t)=>{ const x=xs(t),y=ys(v); t?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke(); });
+  }
+  base();
+  canvas.onmousemove=ev=>{
+    const rect=canvas.getBoundingClientRect(), mx=ev.clientX-rect.left;
+    base();
+    if(mx<padL||mx>W-padR) return;
+    let t=Math.max(0,Math.min(xMax,Math.round(((mx-padL)/(W-padL-padR))*xMax)));
+    const x=xs(t);
+    ctx.strokeStyle=cDim; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,H-padB); ctx.stroke(); ctx.setLineDash([]);
+    const rows=[];
+    lines.forEach(l=>{ if(t<l.data.length){ const v=l.data[t], y=ys(v);
+      ctx.fillStyle=l.color; ctx.beginPath(); ctx.arc(x,y,3,0,7); ctx.fill();
+      rows.push({color:l.color, text:fmtK(v)+" "+opts.yLabel}); }});
+    ctx.font="11px system-ui,sans-serif"; ctx.textBaseline="top"; ctx.textAlign="left";
+    const lh=15, pad=6;
+    const tw=Math.max(ctx.measureText(mmss(t)).width, ...rows.map(r=>ctx.measureText(r.text).width))+pad*2+13;
+    const th=pad*2+lh*(rows.length+1);
+    let bx=x+12; if(bx+tw>W-padR) bx=x-12-tw; const by=padT+6;
+    ctx.fillStyle="rgba(20,22,28,0.93)"; ctx.fillRect(bx,by,tw,th);
+    ctx.strokeStyle=cLine; ctx.strokeRect(bx,by,tw,th);
+    ctx.fillStyle=cDim; ctx.fillText(mmss(t), bx+pad, by+pad);
+    rows.forEach((r,i)=>{ const ry=by+pad+lh*(i+1);
+      ctx.fillStyle=r.color; ctx.fillRect(bx+pad, ry+2, 9,9);
+      ctx.fillStyle="#e6e8ee"; ctx.fillText(r.text, bx+pad+13, ry); });
+  };
+  canvas.onmouseleave=base;
 }
 </script>
 </body>
