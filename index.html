@@ -251,10 +251,11 @@ function joinByKey(aRows,bRows,key,valKey){
 }
 // two <td>: signed delta + signed delta% (colored). a,b already numbers.
 function dCells(a,b){
-  const d=Math.round(a)-Math.round(b);
+  // delta = change going from Run 1 (A) to Run 2 (B); % is relative to A (the "from" value)
+  const d=Math.round(b)-Math.round(a);
   const cls=d>0?"pos":d<0?"neg":"";
   const sign=d>0?"+":d<0?"-":"";
-  const pct=b?`${sign}${Math.round(Math.abs(100*d/b))}%`:(a?"new":"—");
+  const pct=a?`${sign}${Math.round(Math.abs(100*d/a))}%`:(b?"new":"—");
   return `<td class="${cls}">${sign}${fmt(Math.abs(d))}</td><td class="${cls}">${pct}</td>`;
 }
 function cmpMetricTable(a,b,key,valKey,unit){
